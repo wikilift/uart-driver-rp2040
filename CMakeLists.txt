@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 
-set(ProjectName uart_example)
+set(ProjectName uart_driver_project)
 
 add_executable(${ProjectName}
     examples/main.cpp
