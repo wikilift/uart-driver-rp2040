@@ -16,7 +16,6 @@ target_link_libraries(${ProjectName}
     pico_stdlib 
     FreeRTOS-Kernel-Heap4 
     hardware_uart
-    hardware_dma
     )
 
 pico_enable_stdio_uart(${ProjectName} 1)

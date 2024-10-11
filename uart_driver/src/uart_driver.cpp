@@ -1,10 +1,10 @@
 /**
  * @file uart_driver.h
  * @brief UartDriver class for handling UART communication with interrupt-based management.
- * 
- * 
- * 
- * 
+ *
+ *
+ *
+ *
  * @author Daniel Giménez
  * @date 2024-10-11
  * @license MIT License
@@ -31,7 +31,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
 
 #include "uart_driver/include/uart_driver.h"
 #include <cstring>
@@ -102,11 +101,30 @@ void UartDriver::deinit()
 
 void UartDriver::write(const uint8_t *data, size_t length)
 {
-    uart_write_blocking(config_.uart, data, length);
+    if (!uart_is_writable(config_.uart))
+    {
+        printf("Error: Write is not available");
+    }
+    else
+    {
+        printf("%s", reinterpret_cast<const char *>(data));
+
+        uart_write_blocking(config_.uart, data, length);
+    }
+}
+
+void UartDriver::flush()
+{
+    taskENTER_CRITICAL();
+    rx_head_ = 0;
+    rx_tail_ = 0;
+    event_type_ = UART_UNKNOWN;
+    taskEXIT_CRITICAL();
 }
 
 void UartDriver::set_baud_rate(uint baud_rate)
 {
+
     config_.baud_rate = baud_rate;
     uart_set_baudrate(config_.uart, baud_rate);
 }
@@ -166,7 +184,7 @@ void UartDriver::uart_irq_handler(UartDriver *driver, uart_inst_t *uart_inst, ua
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
     uint32_t status = uart_hw->mis;
-    uart_hw->icr = status;  
+    uart_hw->icr = status;
 
     driver->event_type_ = UART_DATA;
 
