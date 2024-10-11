@@ -23,7 +23,7 @@
 #include "pico/stdlib.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "uart_driver/include/uart_driver.h"
+#include "uart_driver.h"
 #include <string.h>
 
 /**

@@ -1,22 +1,24 @@
+cmake_minimum_required(VERSION 3.12)
+
+set(ProjectName uart_example)
+
 add_executable(${ProjectName}
     examples/main.cpp
-    uart_driver/src/uart_driver.cpp 
-   
 )
+
+add_subdirectory(uart_driver)
+
 
 target_include_directories(${ProjectName} PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
+    ${GLOBAL_INCLUDE_PATH}  
     ${FREERTOS_KERNEL_PATH}/include
     ${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040
-    ${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
 
-
-target_link_libraries(${ProjectName} 
-    pico_stdlib 
-    FreeRTOS-Kernel-Heap4 
-    hardware_uart
-    )
+target_link_libraries(${ProjectName}
+    UartDriver
+    pico_stdlib
+)
 
 pico_enable_stdio_uart(${ProjectName} 1)
 pico_enable_stdio_usb(${ProjectName} 1)

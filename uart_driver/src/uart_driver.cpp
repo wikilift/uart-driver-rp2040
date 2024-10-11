@@ -32,7 +32,7 @@
  * THE SOFTWARE.
  */
 
-#include "uart_driver/include/uart_driver.h"
+#include "uart_driver.h"
 #include <cstring>
 #include <stdio.h>
 
