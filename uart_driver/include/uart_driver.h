@@ -48,6 +48,8 @@
 #include "timers.h"
 #include "task.h"
 
+#define NOTIFY_UART_RX (1 << 0)
+
 /**
  * @brief UART event types for handling different UART conditions.
  */
@@ -118,7 +120,7 @@ public:
      * @param data Pointer to the data to be sent.
      * @param length Length of the data to be sent.
      */
-    void write(const uint8_t *data, size_t length);
+    bool write(const uint8_t *data, size_t length);
 
     /**
      * @brief Set a new baud rate for UART communication.
@@ -169,9 +171,13 @@ private:
     /**< Circular buffer for storing received data. */
     uint8_t rx_buffer_[BUFFER_SIZE];
     /**< Write index for the circular buffer. */
-    size_t rx_head_;
+    volatile size_t rx_head_;
     /**< Read index for the circular buffer. */
-    size_t rx_tail_;
+    volatile size_t rx_tail_;
+
+    uint8_t tx_buffer_[BUFFER_SIZE]; 
+    volatile size_t tx_head_;       
+    volatile size_t tx_tail_;        
 
     /**
      * @brief UART0 interrupt handler.
