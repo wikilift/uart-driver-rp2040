@@ -70,8 +70,8 @@ bool UartDriver::install()
         irq_set_enabled(UART1_IRQ, true);
     }
 
-    uart_set_irq_enables(config_.uart, true, false);                                                                                            // Interrupción RX
-    uart_get_hw(config_.uart)->imsc |= (UART_UARTIMSC_OEIM_BITS | UART_UARTIMSC_BEIM_BITS | UART_UARTIMSC_PEIM_BITS | UART_UARTIMSC_FEIM_BITS); // Interrupciones de errores
+    uart_set_irq_enables(config_.uart, true, false);                                                                                            
+    uart_get_hw(config_.uart)->imsc |= (UART_UARTIMSC_OEIM_BITS | UART_UARTIMSC_BEIM_BITS | UART_UARTIMSC_PEIM_BITS | UART_UARTIMSC_FEIM_BITS);
     xTimer = xTimerCreate(
         "UARTTimer",
         pdMS_TO_TICKS(config_.timer_interval_ms),
@@ -99,18 +99,31 @@ void UartDriver::deinit()
     uart_deinit(config_.uart);
 }
 
-void UartDriver::write(const uint8_t *data, size_t length)
+bool UartDriver::write(const uint8_t *data, size_t length)
 {
-    if (!uart_is_writable(config_.uart))
+    for (size_t i = 0; i < length; i++)
     {
-        printf("Error: Write is not available");
+        tx_buffer_[(tx_tail_ + i) % BUFFER_SIZE] = data[i];
     }
-    else
-    {
-        printf("%s", reinterpret_cast<const char *>(data));
 
-        uart_write_blocking(config_.uart, data, length);
+    tx_tail_ = (tx_tail_ + length) % BUFFER_SIZE;
+
+    size_t retries = 1000;
+    while (!uart_is_writable(config_.uart) && retries > 0)
+    {
+        retries--;
     }
+
+    if (retries == 0)
+    {
+        return false;
+    }
+
+    uart_putc_raw(config_.uart, tx_buffer_[tx_head_]);
+    tx_head_ = (tx_head_ + 1) % BUFFER_SIZE;
+    uart_set_irq_enables(config_.uart, true, true);
+
+    return true;
 }
 
 void UartDriver::flush()
@@ -192,51 +205,80 @@ void UartDriver::uart_irq_handler(UartDriver *driver, uart_inst_t *uart_inst, ua
 
     if (error_status)
     {
-        switch (error_status)
+        driver->event_type_ = UART_UNKNOWN;
+
+        if (error_status & UART_UARTMIS_OEMIS_BITS)
         {
-        case UART_UARTMIS_OEMIS_BITS:
+       
             driver->event_type_ = UART_OVERFLOW;
-            break;
-        case UART_UARTMIS_BEMIS_BITS:
+        }
+        if (error_status & UART_UARTMIS_BEMIS_BITS)
+        {
+         
             driver->event_type_ = UART_BREAK;
-            break;
-        case UART_UARTMIS_PEMIS_BITS:
+        }
+        if (error_status & UART_UARTMIS_PEMIS_BITS)
+        {
+        
             driver->event_type_ = UART_PARITY_ERROR;
-            break;
-        case UART_UARTMIS_FEMIS_BITS:
+        }
+        if (error_status & UART_UARTMIS_FEMIS_BITS)
+        {
+           
             driver->event_type_ = UART_FRAME_ERROR;
-            break;
-        default:
-            driver->event_type_ = UART_UNKNOWN;
-            break;
+        }
+        if (driver->config_.task_handle != NULL)
+        {
+            xTaskNotifyFromISR(driver->config_.task_handle, NOTIFY_UART_RX, eSetBits, &xHigherPriorityTaskWoken);
+        }
+    }
+    else
+    {
+        while (uart_is_readable(uart_inst))
+        {
+            uint8_t ch = uart_getc(uart_inst);
+
+            size_t next_head = (driver->rx_head_ + 1) % BUFFER_SIZE;
+            if (next_head != driver->rx_tail_)
+            {
+                driver->rx_buffer_[driver->rx_head_] = ch;
+                driver->rx_head_ = next_head;
+            }
+            else
+            {
+                driver->event_type_ = UART_OVERFLOW;
+                if (driver->config_.task_handle != NULL)
+                {
+
+                    xTaskNotifyFromISR(driver->config_.task_handle, NOTIFY_UART_RX, eSetBits, &xHigherPriorityTaskWoken);
+                }
+
+                if (driver->xTimer != NULL)
+                {
+                    xTimerStopFromISR(driver->xTimer, &xHigherPriorityTaskWoken);
+                }
+
+                portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+                return;
+            }
+        }
+        if (driver->config_.task_handle != NULL)
+        {
+            xTaskNotifyFromISR(driver->config_.task_handle, NOTIFY_UART_RX, eSetBits, &xHigherPriorityTaskWoken);
         }
     }
 
-    while (uart_is_readable(uart_inst))
+    if (status & UART_UARTMIS_TXMIS_BITS)
     {
-        uint8_t ch = uart_getc(uart_inst);
 
-        size_t next_head = (driver->rx_head_ + 1) % BUFFER_SIZE;
-        if (next_head != driver->rx_tail_)
+        if (driver->tx_head_ != driver->tx_tail_)
         {
-            driver->rx_buffer_[driver->rx_head_] = ch;
-            driver->rx_head_ = next_head;
+            uart_putc_raw(driver->config_.uart, driver->tx_buffer_[driver->tx_head_]);
+            driver->tx_head_ = (driver->tx_head_ + 1) % BUFFER_SIZE;
         }
         else
         {
-            driver->event_type_ = UART_OVERFLOW;
-            if (driver->config_.task_handle != NULL)
-            {
-                vTaskNotifyGiveFromISR(driver->config_.task_handle, &xHigherPriorityTaskWoken);
-            }
-
-            if (driver->xTimer != NULL)
-            {
-                xTimerStopFromISR(driver->xTimer, &xHigherPriorityTaskWoken);
-            }
-
-            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-            return;
+            uart_set_irq_enables(driver->config_.uart, true, false);
         }
     }
 
@@ -254,6 +296,7 @@ void UartDriver::uart_timeout_callback(TimerHandle_t xTimer)
 
     if (driver->config_.task_handle != NULL)
     {
-        xTaskNotifyGive(driver->config_.task_handle);
+        xTaskNotify(driver->config_.task_handle, 1 << 0, eSetBits);
+      
     }
 }
